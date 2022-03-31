@@ -1,0 +1,499 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      copllapsed: true
+    df_print: paged
+    toc_depth: 4
+    theme: flatly
+    code_folding: hide
+  html_notebook:
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+```{r}
+library("pacman")
+library("pacman")
+pacman::p_load(
+  modelsummary,
+  summarytools,
+  glue,
+  purrr,
+  sjPlot,
+  sjmisc,
+  car,
+  ggeffects,
+  here,
+  haven,
+  pwr, # Power analysis
+  stats,
+  rlang,
+  janitor,
+  ggplot2,
+  dplyr,
+  ggthemes,
+  margins,
+  estimatr,
+  tidyverse,
+  broom,
+  lmtest,
+  htmltools,
+  gridExtra,
+  scales,
+  rio,
+  stringr,
+  readxl,
+  kableExtra,
+  magick,
+  labelled,
+  leaflet
+)
+
+# Set theme
+theme_set(theme_bw())
+theme_update(
+  panel.border = element_rect(fill = NA),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  strip.background = element_rect(fill = "gray90"),
+             strip.text.y = element_text( size = 10)) # Attrubute text size)
+
+# CREATE NO_ZERO FUNCTION FOR GGPLOT
+
+no_zero <- function(x) {
+  y <- sprintf('%.1f',x)
+  y[x > 0 & x < 1] <- sprintf('.%s',x[x > 0 & x < 1]*10)
+  y[x == 0] <- '0'
+  y[x > -1 & x < 0] <- sprintf('-.%s',x[x > -1 & x < 0]*-10)
+  y
+}
+
+
+options(scipen=999) # Get's rid of scientific notation of high numbers
+
+```
+
+# Data wrangling
+```{r}
+dfraw <- import(here::here("0_raw_data", "data.dta"))
+
+df <- dfraw
+
+# Recoding the first. Notice that there is an output error in the original data
+# The relevant items is Q34-Q37 in the word dokument. The problem is that Q34_1,_2,_3,_4 comes out as  Q36_1,_2,_4,_3. Because it does so the order is non-logical on both number and order. Thus, the "real" Q36s is named v74-v77 in the data file - and they are also named as Q36 in the word document.
+
+
+#Q34 er Q36: I'm so sick of ${e://Field/group}. They are a bunch of idiots who are tearing our country apart!  
+#Q35 er Q35: I've had enough of ${e://Field/group}. If you ask me, they are worthless pigs! 
+#Q36 er v74-v77: There is a certain similarity between vermin and ${e://Field/group}. Let’s exterminate both! 
+#Q37 er Q37: I just started collecting names of ${e://Field/group}. Those kinds of people deserve a bullet to the head! 
+
+
+df <- dfraw %>%
+  rename(resid = respondentid,
+         attention_check = q32) %>% 
+  select(everything(), -c("distributionchannel", "userlanguage", "country", "resp", "tasktootherproject_do", "rid", "recordeddate", "progress", "staus","enddate",
+                          "q17_1","q17_2",
+                          "q18_1","q18_2",
+                          "q19_1","q19_2",
+                          "q20_1","q20_2",
+                          "q21_1","q21_2",
+                          "q22_1","q22_2",
+                          "q23_1","q23_2",
+                          "q24_1","q24_2",
+                          "q25_1","q25_2",
+                          "q26_1","q26_2",
+                          "q27_1","q27_2",
+                          "q28_1","q28_2",
+                          "q29_1","q29_2",
+                          "q30_1","q30_2",
+                          "q31_1","q31_2"),
+         -starts_with(c("fl_", "gender_", "party_", "dem_", "stat_","age_"))) %>% 
+  mutate(across(
+    c("q36_1", "q35_1", "v74", "q37_1"),
+    ~ case_when(
+      .x == "Extremely unlikely" ~ 1,
+      # "Extremely unlikely",
+      .x == "Very unlikely"  ~ 2,
+      # "Very unlikely",
+      .x == "Somewhat unlikely" ~ 3,
+      # "Somewhat unlikely",
+      .x == "Neither likely nor unlikely" ~ 4,
+      # "Neither likely nor unlikely",
+      .x == "Somewhat likely" ~ 5,
+      # "Somewhat likely",
+      .x == "Very likely" ~ 6,
+      #"Very likely",
+      .x == "Extremely likely" ~ 7,
+      # "Extremely likely"
+    )
+  )) %>%
+  dplyr::rename(
+    occur_1 = q36_1,
+    occur_2 = q35_1,
+    occur_3 = v74,
+    occur_4 = q37_1
+  ) %>%
+  mutate(across(
+    c("q36_2", "q35_2", "v75", "q37_2"),
+    ~ case_when(
+      .x == "Extremely unlikely" ~ 1,
+      # "Extremely unlikely",
+      .x == "Very unlikely"  ~ 2,
+      # "Very unlikely",
+      .x == "Somewhat unlikely" ~ 3,
+      # "Somewhat unlikely",
+      .x == "Neither likely nor unlikely" ~ 4,
+      # "Neither likely nor unlikely",
+      .x == "Somewhat likely" ~ 5,
+      # "Somewhat likely",
+      .x == "Very likely" ~ 6,
+      #"Very likely",
+      .x == "Extremely likely" ~ 7,
+      # "Extremely likely"
+    )
+  )) %>%
+  dplyr::rename(
+    trigger_1 = q36_2,
+    trigger_2 = q35_2,
+    trigger_3 = v75,
+    trigger_4 = q37_2
+  ) %>%
+  mutate(across(
+    c("q36_4", "q35_4", "v77", "q37_4"),
+    # NOTE HERE THAT IT IS Q36_4 instead of Q36_3 etc - SEE KRISTIANS MAIL 21-01-22
+    ~ case_when(
+      .x == "Extremely unlikely" ~ 1,
+      # "Extremely unlikely",
+      .x == "Very unlikely"  ~ 2,
+      # "Very unlikely",
+      .x == "Somewhat unlikely" ~ 3,
+      # "Somewhat unlikely",
+      .x == "Neither likely nor unlikely" ~ 4,
+      # "Neither likely nor unlikely",
+      .x == "Somewhat likely" ~ 5,
+      # "Somewhat likely",
+      .x == "Very likely" ~ 6,
+      #"Very likely",
+      .x == "Extremely likely" ~ 7,
+      # "Extremely likely"
+    )
+  )) %>%
+  dplyr::rename(
+    offend_1 = q36_4,
+    offend_2 = q35_4,
+    offend_3 = v77,
+    offend_4 = q37_4
+  ) %>%
+  mutate(across(
+    c("q36_3", "q35_3", "v76", "q37_3"),
+    # NOTE HERE THAT IT IS Q36_4 instead of Q36_3 etc - SEE KRISTIANS MAIL 21-01-22
+    ~ case_when(
+      .x == "Extremely unlikely" ~ 1,
+      # "Extremely unlikely",
+      .x == "Very unlikely"  ~ 2,
+      # "Very unlikely",
+      .x == "Somewhat unlikely" ~ 3,
+      # "Somewhat unlikely",
+      .x == "Neither likely nor unlikely" ~ 4,
+      # "Neither likely nor unlikely",
+      .x == "Somewhat likely" ~ 5,
+      # "Somewhat likely",
+      .x == "Very likely" ~ 6,
+      #"Very likely",
+      .x == "Extremely likely" ~ 7,
+      # "Extremely likely"
+    )
+  )) %>%
+  dplyr::rename(
+    tensions_1 = q36_3,
+    tensions_2 = q35_3,
+    tensions_3 = v76,
+    tensions_4 = q37_3
+  ) %>%
+  mutate(republican = as.factor(
+    case_when(q14 == "Democratic Party" ~ 0,
+              q14 == "Republican Party" ~ 1)
+  ),
+  treatment = factor(
+    group,
+    levels = c(
+              "Democrats", 
+              "Republicans",
+              "black people",
+              "white people",
+              "Muslims",
+              "Christians"),
+    labels = c(
+              "Democrats", 
+              "Republicans",
+              "Black people",
+              "White people",
+              "Muslims",
+              "Christians"))) %>% 
+  # RESHAPE
+  pivot_longer(
+    cols = c(
+      starts_with("occur_"),
+      starts_with("tensions_"),
+      starts_with("trigger_"),
+      starts_with("offend_")
+    ),
+    names_to = c(".value", "task"),
+    # ".value" pivot_longer() that that part of the column name specifies the “value” being measured (which will become a variable in the output)
+    names_sep = "_",
+    values_drop_na = FALSE
+  ) %>%
+  mutate(across(c("occur","offend", "tensions", "trigger"),
+                 ~rescale(.x))) %>% 
+  dplyr::select(resid, treatment, task, occur, offend, tensions, trigger, everything())
+
+
+save(df, file = here::here("1_recoded_data", "infer_harm_data.Rdata"))
+
+
+```
+
+## Calculate means 
+```{r}
+df %>% group_by(resid, treatment) %>% 
+  summarise_at(c("occur", "offend", "tensions", "trigger"), mean, na.rm = TRUE) %>% 
+  filter(!is.na(offend))
+```
+
+# Analysis
+
+## Outcomes <-- treatment
+### Do people perceive a higher prevalence of hostile statements based on who it is targeting?
+
+ETHNIC AND RELIGIOUS GROUPS VS POLITICAL GROUPS
+
+- H1a: Statements targeting ethnic (white/black people) and religious (Muslims/Christians)are perceived to be more likely to occur on social media, compared to statements targeting political groups (Democrats and Republicans): **Not supported. If anything statements targeting political groups are more prevalent**
+
+MINORITY VS MAJORITY
+
+- H1b: Statements targeting minority groups (Muslims and black people) are perceived to be more likely to occur on social media, compared to statements targeting majority groups ( Christians and white people): **Not supported**
+
+### Do people infer more harm when hostile statements are targeting specific groups?
+
+ETHNIC AND RELIGIOUS GROUPS VS POLITICAL GROUPS
+
+- H2a: Statements targeting ethnic (white/black people) and religious (Muslims/Christians) are perceived to be more likely to 1) trigger riots or physical violence 2) offend a lot of people, and 3) increase tensions between groups in society than statements targeting political groups (Democrats and Republicans)
+  + Offends a lot of people: Support compared to democrats
+  + Increases group tensions: Support compared to democrats
+  + Triggers riots or violence: Suport compared to Democrats and Republicans
+
+MINORITY VS MAJORITY
+
+- H2b: Statements targeting minority groups (Muslims and black people) are perceived to be more likely to 1) trigger riots or physical violence 2) offend a lot of people, and 3) increase tentions between groups in society, compared to statements targeting majority groups ( Christians and white people)
+  + Support compared to Christians
+
+
+```{r, fig.height=4}
+load(here::here("1_recoded_data" , "infer_harm_data.Rdata"))
+
+# Define vars
+dvs <- c("occur", "offend", "tensions", "trigger")
+ivs <-  c("treatment")
+
+# Specificy formulas
+fs <- crossing(dvs, ivs)  %>%
+  mutate(f = glue("{dvs} ~ {ivs}"))
+
+# Apply lm function on formulas, create tidy dataframe 3) filter relevant coefficients
+m <- fs %>%
+  mutate(model = map(f, ~ lm_robust(
+    formula = as.formula(.x),
+    data = df,
+    clusters = resid
+  ))) %>%
+  mutate(tidy_model = map(model, broom::tidy)) %>%
+  unnest(tidy_model) %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = factor(
+    term,
+    levels = c(
+      "treatmentBlack people",
+      "treatmentWhite people",
+      "treatmentMuslims",
+      "treatmentChristians",
+      "treatmentRepublicans"
+    ),
+    labels = c("Black people",
+               "White people",
+               "Muslims",
+               "Christians",
+               "Republicans"
+    )), 
+    outcome = factor(
+      outcome,
+      levels = c("occur",
+                 "offend",
+                 "tensions",
+                 "trigger"),
+      labels = c("Occurs on SoMe",
+                 "Offends a lot of people",
+                 "Increases group tensions",
+                 "Triggers riots or violence")))
+
+
+# Create plot
+m %>%
+  ggplot(aes(x = estimate,
+             y = term)) +
+  facet_wrap( ~ outcome, ncol = 4) +
+  geom_vline(xintercept = 0) +
+  geom_point(aes(),
+             colour = ifelse(m$conf.low > 0 |
+                               m$conf.high < 0, "black", "gray49")) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high),
+    height = 0,
+    linetype = ifelse(m$conf.low > 0 |
+                        m$conf.high < 0, "solid", "dashed"),
+    colour = ifelse(m$conf.low > 0 |
+                      m$conf.high < 0, "black", "gray49")
+  ) +
+  scale_x_continuous(
+    limits = c(-.2,.2)
+  ) +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    subtitle = "",
+    caption = ""
+  )
+
+```
+## Outcome <-- treatment * partisanship
+```{r}
+load(here::here("1_recoded_data" , "infer_harm_data.Rdata"))
+
+# Define vars
+dvs <- c("occur", "offend", "tensions", "trigger")
+ivs <-  c("treatment")
+ins <- c("republican")
+
+# Specificy formulas
+fs <- crossing(dvs, ivs, ins)  %>%
+  mutate(
+    f = glue("{dvs} ~ {ivs} * {ins}"))
+
+# Apply lm function on formulas, create tidy dataframe 3) filter relevant coefficients
+models <- fs %>%
+  mutate(model = map(f, ~ lm_robust(
+    formula = as.formula(.x),
+    data = df,
+    clusters = resid
+  ))) 
+
+# Predict the the model. Column 6, row 1 (of 18 )
+m1 <- ggpredict(models[[5]][[1]], terms = c("treatment", "republican")) %>% 
+  mutate(model = "occur")
+
+m2 <- ggpredict(models[[5]][[2]], terms = c("treatment", "republican")) %>% 
+  mutate(model = "offend")
+
+m3 <- ggpredict(models[[5]][[3]], terms = c("treatment", "republican")) %>% 
+  mutate(model = "tensions")
+
+m4 <- ggpredict(models[[5]][[4]], terms = c("treatment", "republican")) %>% 
+  mutate(model = "trigger")
+
+    
+m <- bind_rows(m1, m2,m3,m4) %>% 
+  mutate(Republican = group)
+
+
+ggplot(m, aes(x = predicted, # Level for x variable
+              y = x, # Predicted value at level
+              color = Republican))+
+  facet_wrap(~model, ncol = 2)+ # What group
+  geom_point(position =position_dodge(width= 0.5))+
+
+  geom_errorbarh(aes(xmin = m$conf.low, xmax = m$conf.high), position = position_dodge(width = 0.5), height = 0)+
+  scale_x_continuous(limits = c(0,1))+
+  labs(title = "",
+       subtitle = "",
+       y = "",
+       x = "")
+
+
+```
+
+
+```{r}
+knitr::knit_exit()
+```
+# Knit exit
+
+## Old 
+
+```{r}
+
+ df %>% 
+  select(starts_with("occur_"), starts_with("trigger_"),starts_with("offend_"), starts_with("tensions_"), treatment, republican) %>% 
+  View()
+
+
+#
+fit1 <- lm(occur_1 ~ treatment*repbulican, data =df)
+fit2 <- lm(occur_2 ~ treatment*repbulican, data =df)
+fit3 <- lm(occur_3 ~ treatment*repbulican, data =df)
+fit4 <- lm(occur_4 ~ treatment*repbulican, data =df)
+
+plot_model(fit1, type = "int")
+plot_model(fit2, type = "int")
+plot_model(fit3, type = "int")
+plot_model(fit4, type = "int")
+
+fit1 <- lm(trigger_1 ~ treatment, data =df)
+fit2 <- lm(trigger_2 ~ treatment, data =df)
+fit3 <- lm(trigger_3 ~ treatment, data =df)
+fit4 <- lm(trigger_4 ~ treatment, data =df)
+
+plot_models(fit1, fit2, fit3, fit4)
+
+fit1 <- lm(offend_1 ~ treatment, data =df)
+fit2 <- lm(offend_2 ~ treatment, data =df)
+fit3 <- lm(offend_3 ~ treatment, data =df)
+fit4 <- lm(offend_4 ~ treatment, data =df)
+
+plot_models(fit1, fit2, fit3, fit4)
+
+fit1 <- lm(tensions_1 ~ treatment, data =df)
+fit2 <- lm(tensions_2 ~ treatment, data =df)
+fit3 <- lm(tensions_3 ~ treatment, data =df)
+fit4 <- lm(tensions_4 ~ treatment, data =df)
+
+plot_models(fit1, fit2, fit3, fit4)
+
+
+
+fit <- lm(occur_1 ~ treatment, data =df)
+plot_model(fit)
+
+
+  pivot_wider(
+    id_cols = c(
+      resid, party_id7)
+    ) %>% 
+  count(party_id7) # Create new dataframe
+
+
+
+models <- list(
+  "occur" = lm(occur_1 ~ treatment,
+                data = df))
+
+modelsummary(
+  models)
+
+```
+
